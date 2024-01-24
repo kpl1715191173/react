@@ -23,6 +23,9 @@ function Component(props, context, updater) {
   this.refs = emptyObject;
   // We initialize the default updater but the real one gets injected by the
   // renderer.
+  // 每个类都有自己的 updater -> react-reconciler/ReactFiberClassComponent.js -
+  // classComponentUpdater()
+  // 且渲染过程与 react-reconciler 有关
   this.updater = updater || ReactNoopUpdateQueue;
 }
 
@@ -64,7 +67,7 @@ Component.prototype.setState = function (partialState, callback) {
         'function which returns an object of state variables.',
     );
   }
-
+  // this指向当前类组件对象
   this.updater.enqueueSetState(this, partialState, callback, 'setState');
 };
 
