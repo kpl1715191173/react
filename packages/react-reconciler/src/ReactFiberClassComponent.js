@@ -194,37 +194,38 @@ const classComponentUpdater = {
   isMounted,
   // $FlowFixMe[missing-local-annot]
   enqueueSetState(inst: any, payload: any, callback) {
-    const fiber = getInstance(inst);
-    const lane = requestUpdateLane(fiber);
+    const fiber = getInstance(inst); // 获取组件实例的fiber节点
+    const lane = requestUpdateLane(fiber); // 请求更新通道
 
-    const update = createUpdate(lane);
-    update.payload = payload;
+    const update = createUpdate(lane); // 创建一个更新
+    update.payload = payload; // 将新的状态（payload）附加到更新上
     if (callback !== undefined && callback !== null) {
       if (__DEV__) {
-        warnOnInvalidCallback(callback, 'setState');
+        warnOnInvalidCallback(callback, 'setState'); // 如果在开发模式下，对回调函数进行无效警告
       }
-      update.callback = callback;
+      update.callback = callback; // 如果存在回调函数，则将其附加到更新上
     }
 
-    const root = enqueueUpdate(fiber, update, lane);
+    const root = enqueueUpdate(fiber, update, lane); // 将更新排入队列(链表)
     if (root !== null) {
-      scheduleUpdateOnFiber(root, fiber, lane);
-      entangleTransitions(root, fiber, lane);
+      scheduleUpdateOnFiber(root, fiber, lane); // 安排更新
+      entangleTransitions(root, fiber, lane); // 将fiber节点与其更新关联起来
     }
 
     if (__DEV__) {
       if (enableDebugTracing) {
         if (fiber.mode & DebugTracingMode) {
           const name = getComponentNameFromFiber(fiber) || 'Unknown';
-          logStateUpdateScheduled(name, lane, payload);
+          logStateUpdateScheduled(name, lane, payload); // 如果在开发模式下，并且启用了调试跟踪，记录状态更新
         }
       }
     }
 
     if (enableSchedulingProfiler) {
-      markStateUpdateScheduled(fiber, lane);
+      markStateUpdateScheduled(fiber, lane); // 如果启用了调度分析器，标记状态更新
     }
   },
+
   enqueueReplaceState(inst: any, payload: any, callback: null) {
     const fiber = getInstance(inst);
     const lane = requestUpdateLane(fiber);

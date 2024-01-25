@@ -223,7 +223,7 @@ export function enqueueUpdate<State>(
   update: Update<State>,
   lane: Lane,
 ): FiberRoot | null {
-  const updateQueue = fiber.updateQueue;
+  const updateQueue = fiber.updateQueue; // 链表
   if (updateQueue === null) {
     // Only occurs if the fiber has been unmounted.
     return null;

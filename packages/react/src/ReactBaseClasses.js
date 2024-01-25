@@ -20,9 +20,12 @@ function Component(props, context, updater) {
   this.props = props;
   this.context = context;
   // If a component has string refs, we will assign a different object later.
+  // 如果一个组件有字符串refs，我们稍后将分配一个不同的对象
   this.refs = emptyObject;
   // We initialize the default updater but the real one gets injected by the
   // renderer.
+  // 我们初始化默认更新程序，但真正的更新程序由每个类都有自己的程序注入
+
   // 每个类都有自己的 updater -> react-reconciler/ReactFiberClassComponent.js -
   // classComponentUpdater()
   // 且渲染过程与 react-reconciler 有关
