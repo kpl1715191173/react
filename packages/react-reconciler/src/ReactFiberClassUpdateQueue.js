@@ -453,6 +453,7 @@ function getStateFromUpdate<State>(
         return prevState;
       }
       // Merge the partial state and the previous state.
+      // 实际为Object.assign()，越后面的数据会把前面覆盖
       return assign({}, prevState, partialState);
     }
     case ForceUpdate: {
@@ -591,12 +592,13 @@ export function processUpdateQueue<State>(
         }
 
         // Process this update.
+        // 对新状态的处理
         newState = getStateFromUpdate(
           workInProgress,
           queue,
           update,
           newState,
-          props,
+          props ,
           instance,
         );
         const callback = update.callback;
