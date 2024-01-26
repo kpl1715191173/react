@@ -523,8 +523,11 @@ export function processUpdateQueue<State>(
 
   // These values may change as we process the queue.
   if (firstBaseUpdate !== null) {
+
     // Iterate through the list of updates to compute the result.
+    // 遍历更新列表以计算结果，这也是区别了传入对象和函数造成的影响
     let newState = queue.baseState;
+
     // TODO: Don't need to accumulate this. Instead, we can remove renderLanes
     // from the original lanes.
     let newLanes = NoLanes;
