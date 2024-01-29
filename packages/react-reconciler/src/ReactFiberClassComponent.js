@@ -306,8 +306,9 @@ function checkShouldComponentUpdate(
   nextContext: any,
 ) {
   const instance = workInProgress.stateNode;
+  // 存在 shouldComponentUpdate() 则执行相应的逻辑
   if (typeof instance.shouldComponentUpdate === 'function') {
-    let shouldUpdate = instance.shouldComponentUpdate(
+    let shouldUpdate: boolean = instance.shouldComponentUpdate(
       newProps,
       newState,
       nextContext,
@@ -341,12 +342,16 @@ function checkShouldComponentUpdate(
     return shouldUpdate;
   }
 
+  // 这个判断也值得我们学习，根据 prototype 里面的 isPureReactComponent 属性判断
+  // 且防止 prototype 是 undefined
   if (ctor.prototype && ctor.prototype.isPureReactComponent) {
     return (
+      // 浅层比较props和state
       !shallowEqual(oldProps, newProps) || !shallowEqual(oldState, newState)
     );
   }
 
+  // 默认返回 true，即默认全局更新
   return true;
 }
 

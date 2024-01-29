@@ -15,11 +15,18 @@ import hasOwnProperty from './hasOwnProperty';
  * when any key has values which are not strictly equal between the arguments.
  * Returns true when the values of all keys are strictly equal.
  */
+/**
+ * 通过迭代对象上的键并在任何键具有参数之间不严格相等的值时返回false来执行相等性。
+ * 当所有键的值严格相等时，返回true
+ */
 function shallowEqual(objA: mixed, objB: mixed): boolean {
+
+  // 同一对象
   if (is(objA, objB)) {
     return true;
   }
 
+  // 任意一个不是对象，强制刷新
   if (
     typeof objA !== 'object' ||
     objA === null ||
@@ -37,6 +44,7 @@ function shallowEqual(objA: mixed, objB: mixed): boolean {
   }
 
   // Test for A's keys different from B.
+  // 每一个key是否相等
   for (let i = 0; i < keysA.length; i++) {
     const currentKey = keysA[i];
     if (
