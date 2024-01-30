@@ -53,6 +53,7 @@ import {
   ForceUpdate,
   initializeUpdateQueue,
   cloneUpdateQueue,
+  suspendIfUpdateReadFromEntangledAsyncAction,
 } from './ReactFiberClassUpdateQueue';
 import {NoLanes} from './ReactFiberLane';
 import {
@@ -898,6 +899,7 @@ function mountClassInstance(
     // If we had additional state updates during this life-cycle, let's
     // process them now.
     processUpdateQueue(workInProgress, newProps, instance, renderLanes);
+    suspendIfUpdateReadFromEntangledAsyncAction();
     instance.state = workInProgress.memoizedState;
   }
 
@@ -965,6 +967,7 @@ function resumeMountClassInstance(
   const oldState = workInProgress.memoizedState;
   let newState = (instance.state = oldState);
   processUpdateQueue(workInProgress, newProps, instance, renderLanes);
+  suspendIfUpdateReadFromEntangledAsyncAction();
   newState = workInProgress.memoizedState;
   if (
     oldProps === newProps &&
@@ -1115,6 +1118,7 @@ function updateClassInstance(
   const oldState = workInProgress.memoizedState;
   let newState = (instance.state = oldState);
   processUpdateQueue(workInProgress, newProps, instance, renderLanes);
+  suspendIfUpdateReadFromEntangledAsyncAction();
   newState = workInProgress.memoizedState;
 
   if (
