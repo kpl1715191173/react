@@ -567,6 +567,8 @@ function updateMemoComponent(
     const prevProps = currentChild.memoizedProps;
     // Default to shallow comparison
     let compare = Component.compare;
+
+    // 利用compare做一个浅层比较
     compare = compare !== null ? compare : shallowEqual;
     if (compare(prevProps, nextProps) && current.ref === workInProgress.ref) {
       return bailoutOnAlreadyFinishedWork(current, workInProgress, renderLanes);

@@ -27,6 +27,8 @@ export function memo<Props>(
   const elementType = {
     $$typeof: REACT_MEMO_TYPE,
     type,
+    // packages/react-reconciler/src/ReactFiberBeginWork.js:472
+
     compare: compare === undefined ? null : compare,
   };
   if (__DEV__) {
@@ -53,5 +55,6 @@ export function memo<Props>(
       },
     });
   }
+  // 返回一个对象
   return elementType;
 }
