@@ -46,6 +46,7 @@ import {
 } from 'shared/ReactFeatureFlags';
 import {
   REACT_CONTEXT_TYPE,
+  REACT_SERVER_CONTEXT_TYPE,
   REACT_MEMO_CACHE_SENTINEL,
 } from 'shared/ReactSymbols';
 
@@ -387,7 +388,10 @@ function warnOnHookMismatchInDev(currentHookName: HookType): void {
   }
 }
 
-function warnIfAsyncClientComponent(Component: Function) {
+function warnIfAsyncClientComponent(
+  Component: Function,
+  componentDoesIncludeHooks: boolean,
+) {
   if (__DEV__) {
     // This dev-only check only works for detecting native async functions,
     // not transpiled ones. There's also a prod check that we use to prevent
@@ -398,16 +402,40 @@ function warnIfAsyncClientComponent(Component: Function) {
       // $FlowIgnore[method-unbinding]
       Object.prototype.toString.call(Component) === '[object AsyncFunction]';
     if (isAsyncFunction) {
-      // Encountered an async Client Component. This is not yet supported.
+      // Encountered an async Client Component. This is not yet supported,
+      // except in certain constrained cases, like during a route navigation.
       const componentName = getComponentNameFromFiber(currentlyRenderingFiber);
       if (!didWarnAboutAsyncClientComponent.has(componentName)) {
         didWarnAboutAsyncClientComponent.add(componentName);
-        console.error(
-          'async/await is not yet supported in Client Components, only ' +
-            'Server Components. This error is often caused by accidentally ' +
-            "adding `'use client'` to a module that was originally written " +
-            'for the server.',
-        );
+
+        // Check if this is a sync update. We use the "root" render lanes here
+        // because the "subtree" render lanes may include additional entangled
+        // lanes related to revealing previously hidden content.
+        const root = getWorkInProgressRoot();
+        const rootRenderLanes = getWorkInProgressRootRenderLanes();
+        if (root !== null && includesBlockingLane(root, rootRenderLanes)) {
+          console.error(
+            'async/await is not yet supported in Client Components, only ' +
+              'Server Components. This error is often caused by accidentally ' +
+              "adding `'use client'` to a module that was originally written " +
+              'for the server.',
+          );
+        } else {
+          // This is a concurrent (Transition, Retry, etc) render. We don't
+          // warn in these cases.
+          //
+          // However, Async Components are forbidden to include hooks, even
+          // during a transition, so let's check for that here.
+          //
+          // TODO: Add a corresponding warning to Server Components runtime.
+          if (componentDoesIncludeHooks) {
+            console.error(
+              'Hooks are not supported inside an async component. This ' +
+                "error is often caused by accidentally adding `'use client'` " +
+                'to a module that was originally written for the server.',
+            );
+          }
+        }
       }
     }
   }
@@ -474,7 +502,7 @@ function areHookInputsEqual(
 }
 
 export function renderWithHooks<Props, SecondArg>(
-  current: Fiber | null,
+  current: Fiber | null, // 最初渲染是null
   workInProgress: Fiber,
   Component: (p: Props, arg: SecondArg) => any,
   props: Props,
@@ -490,11 +518,9 @@ export function renderWithHooks<Props, SecondArg>(
         ? ((current._debugHookTypes: any): Array<HookType>)
         : null;
     hookTypesUpdateIndexDev = -1;
-    // Used for hot reloading:
+    // Used for hot reloading（用于热重载）
     ignorePreviousDependencies =
       current !== null && current.type !== workInProgress.type;
-
-    warnIfAsyncClientComponent(Component);
   }
 
   workInProgress.memoizedState = null;
@@ -532,37 +558,54 @@ export function renderWithHooks<Props, SecondArg>(
     }
   } else {
     ReactCurrentDispatcher.current =
+      // current.memoizedState 记录state状态 => Fiber 相关
       current === null || current.memoizedState === null
-        ? HooksDispatcherOnMount
-        : HooksDispatcherOnUpdate;
+        ? HooksDispatcherOnMount // 挂载
+        : HooksDispatcherOnUpdate; // 更新
   }
 
+  // 💡💡💡
   // In Strict Mode, during development, user functions are double invoked to
   // help detect side effects. The logic for how this is implemented for in
   // hook components is a bit complex so let's break it down.
-  //
+  // 在严格模式下，在开发过程中，会双重调用用户函数以帮助检测副作用。
+  // 如何在钩子组件中实现这一点的逻辑有点复杂，所以让我们将其分解
+
   // We will invoke the entire component function twice. However, during the
   // second invocation of the component, the hook state from the first
   // invocation will be reused. That means things like `useMemo` functions won't
   // run again, because the deps will match and the memoized result will
   // be reused.
-  //
+  // 我们将调用整个组件函数两次。
+  // 但是，在第二次调用组件期间，将重用第一次调用的钩子状态。
+  // 这意味着诸如“useMemo”函数之类的东西将不会再次运行，因为依赖项将匹配并且记忆的结果将被重用
+
   // We want memoized functions to run twice, too, so account for this, user
   // functions are double invoked during the *first* invocation of the component
   // function, and are *not* double invoked during the second incovation:
-  //
+  // 我们也希望记忆函数运行两次，因此考虑到这一点，
+  // 用户函数在第一次调用组件函数期间被双重调用，并且在第二次调用期间不会被双重调用：
+
   // - First execution of component function: user functions are double invoked
   // - Second execution of component function (in Strict Mode, during
   //   development): user functions are not double invoked.
-  //
+  // - 首次执行组件函数：用户函数被双重调用
+  // - 第二次执行组件函数（在严格模式下，在开发期间）：用户函数未被双重调用
+
   // This is intentional for a few reasons; most importantly, it's because of
   // how `use` works when something suspends: it reuses the promise that was
   // passed during the first attempt. This is itself a form of memoization.
   // We need to be able to memoize the reactive inputs to the `use` call using
   // a hook (i.e. `useMemo`), which means, the reactive inputs to `use` must
   // come from the same component invocation as the output.
-  //
+  // 这是有意为之的，原因如下：
+  // 最重要的是，这是因为当某些事情挂起时“use”的工作方式：
+  // 它重用第一次尝试期间传递的承诺。这本身就是一种记忆形式。
+  // 我们需要能够使用钩子（即“useMemo”）记住“use”调用的反应性输入，
+  // 这意味着“use”的反应性输入必须来自与输出相同的组件调用。
+
   // There are plenty of tests to ensure this behavior is correct.
+  // 有大量的测试可以确保这种行为是正确的
   const shouldDoubleRenderDEV =
     __DEV__ &&
     debugRenderPhaseSideEffectsForStrictMode &&
@@ -611,6 +654,10 @@ function finishRenderingHooks<Props, SecondArg>(
 ): void {
   if (__DEV__) {
     workInProgress._debugHookTypes = hookTypesDev;
+
+    const componentDoesIncludeHooks =
+      workInProgressHook !== null || thenableIndexCounter !== 0;
+    warnIfAsyncClientComponent(Component, componentDoesIncludeHooks);
   }
 
   // We can assume the previous dispatcher is always this one, since we set it
@@ -1071,7 +1118,10 @@ function use<T>(usable: Usable<T>): T {
       // This is a thenable.
       const thenable: Thenable<T> = (usable: any);
       return useThenable(thenable);
-    } else if (usable.$$typeof === REACT_CONTEXT_TYPE) {
+    } else if (
+      usable.$$typeof === REACT_CONTEXT_TYPE ||
+      usable.$$typeof === REACT_SERVER_CONTEXT_TYPE
+    ) {
       const context: ReactContext<T> = (usable: any);
       return readContext(context);
     }
@@ -1154,11 +1204,6 @@ function mountReducer<S, I, A>(
   let initialState;
   if (init !== undefined) {
     initialState = init(initialArg);
-    if (shouldDoubleInvokeUserFnsInHooksDEV) {
-      setIsStrictModeForDevtools(true);
-      init(initialArg);
-      setIsStrictModeForDevtools(false);
-    }
   } else {
     initialState = ((initialArg: any): S);
   }
@@ -1750,15 +1795,9 @@ function forceStoreRerender(fiber: Fiber) {
 function mountStateImpl<S>(initialState: (() => S) | S): Hook {
   const hook = mountWorkInProgressHook();
   if (typeof initialState === 'function') {
-    const initialStateInitializer = initialState;
+    // useState传入一个函数
     // $FlowFixMe[incompatible-use]: Flow doesn't like mixed types
-    initialState = initialStateInitializer();
-    if (shouldDoubleInvokeUserFnsInHooksDEV) {
-      setIsStrictModeForDevtools(true);
-      // $FlowFixMe[incompatible-use]: Flow doesn't like mixed types
-      initialStateInitializer();
-      setIsStrictModeForDevtools(false);
-    }
+    initialState = initialState();
   }
   hook.memoizedState = hook.baseState = initialState;
   const queue: UpdateQueue<S, BasicStateAction<S>> = {
@@ -1775,15 +1814,15 @@ function mountStateImpl<S>(initialState: (() => S) | S): Hook {
 function mountState<S>(
   initialState: (() => S) | S,
 ): [S, Dispatch<BasicStateAction<S>>] {
-  const hook = mountStateImpl(initialState);
+  const hook = mountStateImpl(initialState); // 初始化获取到空的hook
   const queue = hook.queue;
   const dispatch: Dispatch<BasicStateAction<S>> = (dispatchSetState.bind(
-    null,
+    null, // this -> null
     currentlyRenderingFiber,
     queue,
   ): any);
   queue.dispatch = dispatch;
-  return [hook.memoizedState, dispatch];
+  return [hook.memoizedState, dispatch]; // dispatch即是set函数
 }
 
 function updateState<S>(
@@ -2648,12 +2687,10 @@ function mountMemo<T>(
 ): T {
   const hook = mountWorkInProgressHook();
   const nextDeps = deps === undefined ? null : deps;
-  const nextValue = nextCreate();
   if (shouldDoubleInvokeUserFnsInHooksDEV) {
-    setIsStrictModeForDevtools(true);
     nextCreate();
-    setIsStrictModeForDevtools(false);
   }
+  const nextValue = nextCreate();
   hook.memoizedState = [nextValue, nextDeps];
   return nextValue;
 }
@@ -2672,12 +2709,10 @@ function updateMemo<T>(
       return prevState[0];
     }
   }
-  const nextValue = nextCreate();
   if (shouldDoubleInvokeUserFnsInHooksDEV) {
-    setIsStrictModeForDevtools(true);
     nextCreate();
-    setIsStrictModeForDevtools(false);
   }
+  const nextValue = nextCreate();
   hook.memoizedState = [nextValue, nextDeps];
   return nextValue;
 }
