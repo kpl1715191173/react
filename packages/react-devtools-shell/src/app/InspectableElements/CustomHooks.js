@@ -17,8 +17,11 @@ import {
   useContext,
   useDebugValue,
   useEffect,
+  useOptimistic,
   useState,
+  use,
 } from 'react';
+import {useFormState} from 'react-dom';
 
 const object = {
   string: 'abc',
@@ -73,6 +76,8 @@ function FunctionWithHooks(props: any, ref: React$Ref<any>) {
   const [count, updateCount] = useState(0);
   // eslint-disable-next-line no-unused-vars
   const contextValueA = useContext(ContextA);
+  useOptimistic<number, mixed>(1);
+  use(ContextA);
 
   // eslint-disable-next-line no-unused-vars
   const [_, __] = useState(object);
@@ -115,6 +120,62 @@ function wrapWithHoc(Component: (props: any, ref: React$Ref<any>) => any) {
 }
 const HocWithHooks = wrapWithHoc(FunctionWithHooks);
 
+function incrementWithDelay(previousState: number, formData: FormData) {
+  const incrementDelay = +formData.get('incrementDelay');
+  const shouldReject = formData.get('shouldReject');
+  const reason = formData.get('reason');
+
+  return new Promise((resolve, reject) => {
+    setTimeout(() => {
+      if (shouldReject) {
+        reject(reason);
+      } else {
+        resolve(previousState + 1);
+      }
+    }, incrementDelay);
+  });
+}
+
+function Forms() {
+  const [state, formAction] = useFormState<any, any>(incrementWithDelay, 0);
+  return (
+    <form>
+      State: {state}&nbsp;
+      <label>
+        delay:
+        <input
+          name="incrementDelay"
+          defaultValue={5000}
+          type="text"
+          inputMode="numeric"
+        />
+      </label>
+      <label>
+        Reject:
+        <input name="reason" type="text" />
+        <input name="shouldReject" type="checkbox" />
+      </label>
+      <button formAction={formAction}>Increment</button>
+    </form>
+  );
+}
+
+class ErrorBoundary extends React.Component<{children?: React$Node}> {
+  state: {error: any} = {error: null};
+  static getDerivedStateFromError(error: mixed): {error: any} {
+    return {error};
+  }
+  componentDidCatch(error: any, info: any) {
+    console.error(error, info);
+  }
+  render(): any {
+    if (this.state.error) {
+      return <div>Error: {String(this.state.error)}</div>;
+    }
+    return this.props.children;
+  }
+}
+
 export default function CustomHooks(): React.Node {
   return (
     <Fragment>
@@ -122,6 +183,9 @@ export default function CustomHooks(): React.Node {
       <MemoWithHooks />
       <ForwardRefWithHooks />
       <HocWithHooks />
+      <ErrorBoundary>
+        <Forms />
+      </ErrorBoundary>
     </Fragment>
   );
 }

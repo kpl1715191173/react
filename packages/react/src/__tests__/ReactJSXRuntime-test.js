@@ -12,16 +12,14 @@
 let React;
 let ReactDOM;
 let ReactDOMClient;
-let ReactTestUtils;
 let JSXRuntime;
 let JSXDEVRuntime;
 let act;
 
-// NOTE: We're explicitly not using JSX here. This is intended to test
-// a new React.jsx api which does not have a JSX transformer yet.
-// A lot of these tests are pulled from ReactElement-test because
-// this api is meant to be backwards compatible.
-describe('ReactElement.jsx', () => {
+// NOTE: Prefer to call the JSXRuntime directly in these tests so we can be
+// certain that we are testing the runtime behavior, as opposed to the Babel
+// transform that we use in our tests configuration.
+describe('ReactJSXRuntime', () => {
   beforeEach(() => {
     jest.resetModules();
 
@@ -30,7 +28,6 @@ describe('ReactElement.jsx', () => {
     JSXDEVRuntime = require('react/jsx-dev-runtime');
     ReactDOM = require('react-dom');
     ReactDOMClient = require('react-dom/client');
-    ReactTestUtils = require('react-dom/test-utils');
     act = require('internal-test-utils').act;
   });
 
@@ -73,7 +70,7 @@ describe('ReactElement.jsx', () => {
     expect(container.firstChild.textContent).toBe('persimmon');
   });
 
-  it('should normalize props with default values', () => {
+  it('should normalize props with default values', async () => {
     class Component extends React.Component {
       render() {
         return JSXRuntime.jsx('span', {children: this.props.prop});
@@ -81,18 +78,33 @@ describe('ReactElement.jsx', () => {
     }
     Component.defaultProps = {prop: 'testKey'};
 
-    const instance = ReactTestUtils.renderIntoDocument(
-      JSXRuntime.jsx(Component, {}),
-    );
+    let container = document.createElement('div');
+    let root = ReactDOMClient.createRoot(container);
+    let instance;
+    await act(() => {
+      root.render(
+        JSXRuntime.jsx(Component, {ref: current => (instance = current)}),
+      );
+    });
+
     expect(instance.props.prop).toBe('testKey');
 
-    const inst2 = ReactTestUtils.renderIntoDocument(
-      JSXRuntime.jsx(Component, {prop: null}),
-    );
+    container = document.createElement('div');
+    root = ReactDOMClient.createRoot(container);
+    let inst2;
+    await act(() => {
+      root.render(
+        JSXRuntime.jsx(Component, {
+          prop: null,
+          ref: current => (inst2 = current),
+        }),
+      );
+    });
+
     expect(inst2.props.prop).toBe(null);
   });
 
-  it('throws when changing a prop (in dev) after element creation', () => {
+  it('throws when changing a prop (in dev) after element creation', async () => {
     class Outer extends React.Component {
       render() {
         const el = JSXRuntime.jsx('div', {className: 'moo'});
@@ -110,9 +122,13 @@ describe('ReactElement.jsx', () => {
         return el;
       }
     }
-    const outer = ReactTestUtils.renderIntoDocument(
-      JSXRuntime.jsx(Outer, {color: 'orange'}),
-    );
+    const container = document.createElement('div');
+    const root = ReactDOMClient.createRoot(container);
+    await act(() => {
+      root.render(JSXRuntime.jsx(Outer, {color: 'orange'}));
+    });
+
+    const outer = container.firstChild;
     if (__DEV__) {
       expect(ReactDOM.findDOMNode(outer).className).toBe('moo');
     } else {
@@ -152,15 +168,24 @@ describe('ReactElement.jsx', () => {
     }
   });
 
-  it('does not warn for NaN props', () => {
+  it('does not warn for NaN props', async () => {
     class Test extends React.Component {
       render() {
         return JSXRuntime.jsx('div', {});
       }
     }
-    const test = ReactTestUtils.renderIntoDocument(
-      JSXRuntime.jsx(Test, {value: +undefined}),
-    );
+    const container = document.createElement('div');
+    const root = ReactDOMClient.createRoot(container);
+    let test;
+    await act(() => {
+      root.render(
+        JSXRuntime.jsx(Test, {
+          value: +undefined,
+          ref: current => (test = current),
+        }),
+      );
+    });
+
     expect(test.props.value).toBeNaN();
   });
 
@@ -221,6 +246,7 @@ describe('ReactElement.jsx', () => {
     );
   });
 
+  // @gate !enableRefAsProp
   it('should warn when `ref` is being accessed', async () => {
     const container = document.createElement('div');
     class Child extends React.Component {

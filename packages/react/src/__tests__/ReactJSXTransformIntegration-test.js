@@ -10,18 +10,27 @@
 'use strict';
 
 let React;
-let ReactDOM;
-let ReactTestUtils;
+let ReactDOMClient;
+let act;
 
-describe('ReactJSXElement', () => {
+// TODO: Historically this module was used to confirm that the JSX transform
+// produces the correct output. However, most users (and indeed our own test
+// suite) use a tool like Babel or TypeScript to transform JSX; unlike the
+// runtime, the transform is not part of React itself. So this is really just an
+// integration suite for the Babel transform. We might consider deleting it. We
+// should prefer to test the JSX runtime directly, in ReactCreateElement-test
+// and ReactJsxRuntime-test. In the meantime, there's lots of overlap between
+// those modules and this one.
+describe('ReactJSXTransformIntegration', () => {
   let Component;
 
   beforeEach(() => {
     jest.resetModules();
 
     React = require('react');
-    ReactDOM = require('react-dom');
-    ReactTestUtils = require('react-dom/test-utils');
+    ReactDOMClient = require('react-dom/client');
+    act = require('internal-test-utils').act;
+
     Component = class extends React.Component {
       render() {
         return <div />;
@@ -29,11 +38,28 @@ describe('ReactJSXElement', () => {
     };
   });
 
+  it('sanity check: test environment is configured to compile JSX to the jsx() runtime', async () => {
+    function App() {
+      return <div />;
+    }
+    const source = App.toString();
+    if (__DEV__) {
+      expect(source).toContain('jsxDEV(');
+    } else {
+      expect(source).toContain('jsx(');
+    }
+    expect(source).not.toContain('React.createElement');
+  });
+
   it('returns a complete element according to spec', () => {
     const element = <Component />;
     expect(element.type).toBe(Component);
     expect(element.key).toBe(null);
-    expect(element.ref).toBe(null);
+    if (gate(flags => flags.enableRefAsProp)) {
+      expect(element.ref).toBe(null);
+    } else {
+      expect(element.ref).toBe(null);
+    }
     const expectation = {};
     Object.freeze(expectation);
     expect(element.props).toEqual(expectation);
@@ -43,7 +69,11 @@ describe('ReactJSXElement', () => {
     const element = <div />;
     expect(element.type).toBe('div');
     expect(element.key).toBe(null);
-    expect(element.ref).toBe(null);
+    if (gate(flags => flags.enableRefAsProp)) {
+      expect(element.ref).toBe(null);
+    } else {
+      expect(element.ref).toBe(null);
+    }
     const expectation = {};
     Object.freeze(expectation);
     expect(element.props).toEqual(expectation);
@@ -54,7 +84,11 @@ describe('ReactJSXElement', () => {
     const element = <TagName />;
     expect(element.type).toBe('div');
     expect(element.key).toBe(null);
-    expect(element.ref).toBe(null);
+    if (gate(flags => flags.enableRefAsProp)) {
+      expect(element.ref).toBe(null);
+    } else {
+      expect(element.ref).toBe(null);
+    }
     const expectation = {};
     Object.freeze(expectation);
     expect(element.props).toEqual(expectation);
@@ -77,22 +111,44 @@ describe('ReactJSXElement', () => {
     expect(element.props.foo).toBe(1);
   });
 
-  it('extracts key and ref from the rest of the props', () => {
-    const ref = React.createRef();
-    const element = <Component key="12" ref={ref} foo="56" />;
+  it('extracts key from the rest of the props', () => {
+    const element = <Component key="12" foo="56" />;
     expect(element.type).toBe(Component);
     expect(element.key).toBe('12');
-    expect(element.ref).toBe(ref);
     const expectation = {foo: '56'};
     Object.freeze(expectation);
     expect(element.props).toEqual(expectation);
+  });
+
+  it('does not extract ref from the rest of the props', () => {
+    const ref = React.createRef();
+    const element = <Component ref={ref} foo="56" />;
+    expect(element.type).toBe(Component);
+    if (gate(flags => flags.enableRefAsProp)) {
+      expect(() => expect(element.ref).toBe(ref)).toErrorDev(
+        'Accessing element.ref is no longer supported',
+        {withoutStack: true},
+      );
+      const expectation = {foo: '56', ref};
+      Object.freeze(expectation);
+      expect(element.props).toEqual(expectation);
+    } else {
+      const expectation = {foo: '56'};
+      Object.freeze(expectation);
+      expect(element.props).toEqual(expectation);
+      expect(element.ref).toBe(ref);
+    }
   });
 
   it('coerces the key to a string', () => {
     const element = <Component key={12} foo="56" />;
     expect(element.type).toBe(Component);
     expect(element.key).toBe('12');
-    expect(element.ref).toBe(null);
+    if (gate(flags => flags.enableRefAsProp)) {
+      expect(element.ref).toBe(null);
+    } else {
+      expect(element.ref).toBe(null);
+    }
     const expectation = {foo: '56'};
     Object.freeze(expectation);
     expect(element.props).toEqual(expectation);
@@ -172,18 +228,24 @@ describe('ReactJSXElement', () => {
     expect(element.constructor).toBe(object.constructor);
   });
 
-  it('should use default prop value when removing a prop', () => {
+  it('should use default prop value when removing a prop', async () => {
     Component.defaultProps = {fruit: 'persimmon'};
 
     const container = document.createElement('div');
-    const instance = ReactDOM.render(<Component fruit="mango" />, container);
+    const root = ReactDOMClient.createRoot(container);
+    let instance;
+    await act(() => {
+      root.render(<Component fruit="mango" ref={ref => (instance = ref)} />);
+    });
     expect(instance.props.fruit).toBe('mango');
 
-    ReactDOM.render(<Component />, container);
+    await act(() => {
+      root.render(<Component ref={ref => (instance = ref)} />);
+    });
     expect(instance.props.fruit).toBe('persimmon');
   });
 
-  it('should normalize props with default values', () => {
+  it('should normalize props with default values', async () => {
     class NormalizingComponent extends React.Component {
       render() {
         return <span>{this.props.prop}</span>;
@@ -191,14 +253,26 @@ describe('ReactJSXElement', () => {
     }
     NormalizingComponent.defaultProps = {prop: 'testKey'};
 
-    const instance = ReactTestUtils.renderIntoDocument(
-      <NormalizingComponent />,
-    );
+    let container = document.createElement('div');
+    let root = ReactDOMClient.createRoot(container);
+    let instance;
+    await act(() => {
+      root.render(
+        <NormalizingComponent ref={current => (instance = current)} />,
+      );
+    });
+
     expect(instance.props.prop).toBe('testKey');
 
-    const inst2 = ReactTestUtils.renderIntoDocument(
-      <NormalizingComponent prop={null} />,
-    );
+    container = document.createElement('div');
+    root = ReactDOMClient.createRoot(container);
+    let inst2;
+    await act(() => {
+      root.render(
+        <NormalizingComponent prop={null} ref={current => (inst2 = current)} />,
+      );
+    });
+
     expect(inst2.props.prop).toBe(null);
   });
 });
