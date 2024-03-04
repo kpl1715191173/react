@@ -254,7 +254,7 @@ type Dispatch<A> = A => void;
 let renderLanes: Lanes = NoLanes;
 // The work-in-progress fiber. I've named it differently to distinguish it from
 // the work-in-progress hook.
-let currentlyRenderingFiber: Fiber = (null: any);
+let currentlyRenderingFiber: Fiber = (null: any); // 第一次创建没有值
 
 // Hooks are stored as a linked list on the fiber's memoizedState field. The
 // current hook list is the list that belongs to the current fiber. The
@@ -986,6 +986,8 @@ function mountWorkInProgressHook(): Hook {
     currentlyRenderingFiber.memoizedState = workInProgressHook = hook;
   } else {
     // Append to the end of the list
+    // 追加到链表的末尾
+    // Note: 即多次调用set函数，每一次的值会形成一个链表🟥->🟧->🟨->🟩
     workInProgressHook = workInProgressHook.next = hook;
   }
   return workInProgressHook;
@@ -1010,6 +1012,7 @@ function updateWorkInProgressHook(): Hook {
 
   let nextWorkInProgressHook: null | Hook;
   if (workInProgressHook === null) {
+    // 更新后获取最新的state
     nextWorkInProgressHook = currentlyRenderingFiber.memoizedState;
   } else {
     nextWorkInProgressHook = workInProgressHook.next;
@@ -1192,6 +1195,7 @@ function useMemoCache(size: number): Array<any> {
 
 function basicStateReducer<S>(state: S, action: BasicStateAction<S>): S {
   // $FlowFixMe[incompatible-use]: Flow doesn't like mixed types
+  // 单独action直接返回，如果是函数则执行
   return typeof action === 'function' ? action(state) : action;
 }
 
@@ -1795,11 +1799,18 @@ function forceStoreRerender(fiber: Fiber) {
 function mountStateImpl<S>(initialState: (() => S) | S): Hook {
   const hook = mountWorkInProgressHook();
   if (typeof initialState === 'function') {
-    // useState传入一个函数
+    // useState传入的函数，运行并获取结果
     // $FlowFixMe[incompatible-use]: Flow doesn't like mixed types
     initialState = initialState();
   }
+
   hook.memoizedState = hook.baseState = initialState;
+  /**
+   * 假设此时是调用多次 useState()
+   * 经过 mountWorkInProgressHook() 函数生成空的hook并形成链表
+   */
+
+  // 执行更新set时候用到
   const queue: UpdateQueue<S, BasicStateAction<S>> = {
     pending: null,
     lanes: NoLanes,
@@ -1818,11 +1829,11 @@ function mountState<S>(
   const queue = hook.queue;
   const dispatch: Dispatch<BasicStateAction<S>> = (dispatchSetState.bind(
     null, // this -> null
-    currentlyRenderingFiber,
-    queue,
+    currentlyRenderingFiber, // 传入的函数第一参数，全局变量
+    queue, // 传入的函数第二参数
   ): any);
   queue.dispatch = dispatch;
-  return [hook.memoizedState, dispatch]; // dispatch即是set函数
+  return [hook.memoizedState, dispatch]; // hook.memoizedState是初始化值，dispatch即是set函数
 }
 
 function updateState<S>(
@@ -3225,10 +3236,12 @@ function dispatchReducerAction<S, A>(
 }
 
 function dispatchSetState<S, A>(
-  fiber: Fiber,
-  queue: UpdateQueue<S, A>,
-  action: A,
+  fiber: Fiber, // 当前的Fiber节点
+  queue: UpdateQueue<S, A>, // 更新队列
+  action: A, // 更新set操作时候设置的值
 ): void {
+
+  // 开发环境下的检查，如果在useState或useReducer的Hooks中使用了第二个回调参数，会抛出一个错误
   if (__DEV__) {
     if (typeof arguments[3] === 'function') {
       console.error(
@@ -3239,8 +3252,11 @@ function dispatchSetState<S, A>(
     }
   }
 
+  // 请求一个更新通道
   const lane = requestUpdateLane(fiber);
 
+  // 创建一个新的更新对象
+  // 本质上更新的参数都放在update中
   const update: Update<S, A> = {
     lane,
     revertLane: NoLane,
@@ -3250,17 +3266,23 @@ function dispatchSetState<S, A>(
     next: (null: any),
   };
 
+  // 如果当前是渲染阶段的更新，那么就将更新加入到渲染阶段的更新队列中
   if (isRenderPhaseUpdate(fiber)) {
     enqueueRenderPhaseUpdate(queue, update);
   } else {
     const alternate = fiber.alternate;
     if (
+      // 如果当前Fiber节点和它的alternate节点都没有在任何通道上，那么就可以在进入渲染阶段之前急切地计算下一个状态
       fiber.lanes === NoLanes &&
       (alternate === null || alternate.lanes === NoLanes)
     ) {
       // The queue is currently empty, which means we can eagerly compute the
       // next state before entering the render phase. If the new state is the
       // same as the current state, we may be able to bail out entirely.
+      // 队列当前为空，这意味着我们可以在进入渲染阶段之前急切地计算下一个状态。
+      // 如果新状态与当前状态相同，我们也许可以完全退出。
+
+      // 获取最后一次渲染的reducer
       const lastRenderedReducer = queue.lastRenderedReducer;
       if (lastRenderedReducer !== null) {
         let prevDispatcher;
@@ -3270,19 +3292,34 @@ function dispatchSetState<S, A>(
             InvalidNestedHooksDispatcherOnUpdateInDEV;
         }
         try {
+          // 获取最后一次渲染的状态
           const currentState: S = (queue.lastRenderedState: any);
+
+          // 使用最后一次渲染的reducer和action来计算新的状态
+          // useState -> useReducer
           const eagerState = lastRenderedReducer(currentState, action);
           // Stash the eagerly computed state, and the reducer used to compute
           // it, on the update object. If the reducer hasn't changed by the
           // time we enter the render phase, then the eager state can be used
           // without calling the reducer again.
+          // 将高优先计算的状态和用于计算它的reducer存储在更新对象上。
+          // 如果到我们进入渲染阶段时reducer还没有改变，
+          // 那么可以使用高优先计算状态(原先的)而无需再次调用reducer。
+
+          // 将计算出的新状态存储在更新对象上
           update.hasEagerState = true;
           update.eagerState = eagerState;
+
+          // 如果新状态和当前状态相同，那么就可以在不需要重新渲染React的情况下退出
           if (is(eagerState, currentState)) {
             // Fast path. We can bail out without scheduling React to re-render.
             // It's still possible that we'll need to rebase this update later,
             // if the component re-renders for a different reason and by that
             // time the reducer has changed.
+            // 快速路径
+            // 我们可以在不安排React重新渲染的情况下退出。
+            // 如果组件出于不同的原因重新呈现，并且到那时reducer已经更改，
+            // 我们仍然可能需要稍后重新调整此更新的基础。
             // TODO: Do we still need to entangle transitions in this case?
             enqueueConcurrentHookUpdateAndEagerlyBailout(fiber, queue, update);
             return;
@@ -3297,13 +3334,16 @@ function dispatchSetState<S, A>(
       }
     }
 
+    // 将更新加入到并发Hook更新队列中
     const root = enqueueConcurrentHookUpdate(fiber, queue, update, lane);
     if (root !== null) {
+      // 在Fiber上调度更新，并将更新和通道关联起来
       scheduleUpdateOnFiber(root, fiber, lane);
       entangleTransitionUpdate(root, queue, lane);
     }
   }
 
+  // 在DevTools中标记更新
   markUpdateInDevTools(fiber, lane, action);
 }
 
@@ -3515,7 +3555,7 @@ const HooksDispatcherOnMount: Dispatcher = {
   useMemo: mountMemo,
   useReducer: mountReducer,
   useRef: mountRef,
-  useState: mountState,
+  useState: mountState, // 第一次执行本质是执行mountState
   useDebugValue: mountDebugValue,
   useDeferredValue: mountDeferredValue,
   useTransition: mountTransition,
