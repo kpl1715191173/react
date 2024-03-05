@@ -1253,15 +1253,19 @@ function updateReducerImpl<S, A>(
   queue.lastRenderedReducer = reducer;
 
   // The last rebase update that is NOT part of the base state.
+  // 最后一次rebase更新 不属于基本状态
   let baseQueue = hook.baseQueue;
 
   // The last pending update that hasn't been processed yet.
+  // 最后一个挂起的更新 尚未处理
   const pendingQueue = queue.pending;
   if (pendingQueue !== null) {
     // We have new updates that haven't been processed yet.
     // We'll add them to the base queue.
+    // 我们有尚未处理的新更新，我们将它们添加到基本队列
     if (baseQueue !== null) {
       // Merge the pending queue and the base queue.
+      // 合并挂起队列和基本队列
       const baseFirst = baseQueue.next;
       const pendingFirst = pendingQueue.next;
       baseQueue.next = pendingFirst;
@@ -1277,6 +1281,7 @@ function updateReducerImpl<S, A>(
         );
       }
     }
+    // 获取还有操作未执行
     current.baseQueue = baseQueue = pendingQueue;
     queue.pending = null;
   }
@@ -1300,16 +1305,23 @@ function updateReducerImpl<S, A>(
     let newBaseQueueLast: Update<S, A> | null = null;
     let update = first;
     let didReadFromEntangledAsyncAction = false;
+
+    // 按照优先级执行未完成的任务
     do {
       // An extra OffscreenLane bit is added to updates that were made to
       // a hidden tree, so that we can distinguish them from updates that were
       // already there when the tree was hidden.
+      // already there when the tree was hidden.
+      // 额外的OffscreenLane位被添加到对隐藏树进行的更新中
+      // 以便我们可以将它们与隐藏树时已经存在的更新区分开
       const updateLane = removeLanes(update.lane, OffscreenLane);
       const isHiddenUpdate = updateLane !== update.lane;
 
       // Check if this update was made while the tree was hidden. If so, then
       // it's not a "base" update and we should disregard the extra base lanes
       // that were added to renderLanes when we entered the Offscreen tree.
+      // 检查此更新是否在树隐藏时进行。
+      // 如果是这样，那么它不是一个 “基础” 更新，我们应该忽略当我们进入屏幕外树时添加到renderLanes的额外基础车道
       const shouldSkipUpdate = isHiddenUpdate
         ? !isSubsetOfLanes(getWorkInProgressRootRenderLanes(), updateLane)
         : !isSubsetOfLanes(renderLanes, updateLane);
